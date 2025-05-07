@@ -186,7 +186,20 @@ extension Metadata {
         }
 
         func _propertyDescriptionsAndStartPoint() -> ([Property.Description], Int32?)? {
-            let instanceStart = pointer.pointee.class_rw_t()?.pointee.class_ro_t()?.pointee.instanceStart
+            // swift/include/swift/Remote/MetadataReader.h
+            guard let flags = pointer.pointee.flags() else {
+                return nil
+            }
+            let RO_REALIZED: UInt32 = 0x80000000
+            let isRealized = (flags & RO_REALIZED) != 0
+            var ro:  UnsafePointer<_class_ro_t>?
+            if isRealized {
+                ro = pointer.pointee.class_rw_t()?.pointee.class_ro_t()
+            } else {
+                ro = pointer.pointee.class_ro_t()
+            }
+            
+            let instanceStart = ro?.pointee.instanceStart
             var result: [Property.Description] = []
             if let fieldOffsets = self.fieldOffsets, let fieldRecords = self.reflectionFieldDescriptor?.fieldRecords {
                 class NameAndType {
@@ -254,6 +267,27 @@ extension _Metadata {
                 return UnsafePointer<_class_rw_t>(bitPattern: UInt(databits_t & fast_data_mask))
             } else {
                 return UnsafePointer<_class_rw_t>(bitPattern: self.rodataPointer & 0xfffffffc)
+            }
+        }
+        
+        /// Read the flags, which is a 32-bit header on both formats.
+        func flags() -> UInt32? {
+            if MemoryLayout<Int>.size == MemoryLayout<Int64>.size {
+                let fast_data_mask: UInt64 = 0x00007ffffffffff8
+                let databits_t: UInt64 = UInt64(self.rodataPointer)
+                return UnsafePointer<UInt32>(bitPattern: UInt(databits_t & fast_data_mask))?.pointee
+            } else {
+                return UnsafePointer<UInt32>(bitPattern: self.rodataPointer & 0xfffffffc)?.pointee
+            }
+        }
+        
+        func class_ro_t() -> UnsafePointer<_class_ro_t>? {
+            if MemoryLayout<Int>.size == MemoryLayout<Int64>.size {
+                let fast_data_mask: UInt64 = 0x00007ffffffffff8
+                let databits_t: UInt64 = UInt64(self.rodataPointer)
+                return UnsafePointer<_class_ro_t>(bitPattern: UInt(databits_t & fast_data_mask))
+            } else {
+                return UnsafePointer<_class_ro_t>(bitPattern: self.rodataPointer & 0xfffffffc)
             }
         }
     }
